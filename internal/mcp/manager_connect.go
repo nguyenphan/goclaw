@@ -18,7 +18,7 @@ import (
 // definitions. The caller is responsible for registering tools and starting
 // the health loop. This function is shared by both Manager and Pool.
 func connectAndDiscover(ctx context.Context, name, transportType, command string, args []string, env map[string]string, url string, headers map[string]string, timeoutSec int) (*serverState, []mcpgo.Tool, error) {
-	client, err := createClient(transportType, command, args, env, url, headers)
+	client, err := createClient(transportType, command, args, env, url, headers, timeoutSec)
 	if err != nil {
 		return nil, nil, fmt.Errorf("create client: %w", err)
 	}
@@ -183,7 +183,9 @@ func (m *Manager) registerPoolBridgeTools(entry *poolEntry, serverName, toolPref
 }
 
 // createClient creates the appropriate MCP client based on transport type.
-func createClient(transportType, command string, args []string, env map[string]string, url string, headers map[string]string) (*mcpclient.Client, error) {
+// timeoutSec controls the SSE response timeout (how long to wait for a tool
+// call result). Pass 0 to use the library default (60s).
+func createClient(transportType, command string, args []string, env map[string]string, url string, headers map[string]string, timeoutSec int) (*mcpclient.Client, error) {
 	switch transportType {
 	case "stdio":
 		envSlice := mapToEnvSlice(env)
@@ -193,6 +195,9 @@ func createClient(transportType, command string, args []string, env map[string]s
 		var opts []transport.ClientOption
 		if len(headers) > 0 {
 			opts = append(opts, mcpclient.WithHeaders(headers))
+		}
+		if timeoutSec > 0 {
+			opts = append(opts, transport.WithResponseTimeout(time.Duration(timeoutSec)*time.Second))
 		}
 		return mcpclient.NewSSEMCPClient(url, opts...)
 
