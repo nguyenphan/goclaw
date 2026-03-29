@@ -18,6 +18,7 @@ import { useChannels } from "@/pages/channels/hooks/use-channels";
 import { useProviders } from "@/pages/providers/hooks/use-providers";
 import { useUiStore } from "@/stores/use-ui-store";
 import { ProviderModelSelect } from "@/components/shared/provider-model-select";
+import { IANA_TIMEZONES } from "@/lib/constants";
 import type { HeartbeatConfig, DeliveryTarget } from "@/pages/agents/hooks/use-agent-heartbeat";
 
 interface HeartbeatConfigDialogProps {
@@ -54,7 +55,7 @@ export function HeartbeatConfigDialog({
   const [intervalMin, setIntervalMin] = useState(30);
   const [ackMaxChars, setAckMaxChars] = useState(300);
   const [maxRetries, setMaxRetries] = useState(2);
-  const [isolatedSession, setIsolatedSession] = useState(true);
+  const [isolatedSession, setIsolatedSession] = useState(false);
   const [lightContext, setLightContext] = useState(false);
   const [activeHoursStart, setActiveHoursStart] = useState("");
   const [activeHoursEnd, setActiveHoursEnd] = useState("");
@@ -126,28 +127,32 @@ export function HeartbeatConfigDialog({
   };
 
   const handleSave = async () => {
-    const clampedMin = Math.max(5, intervalMin);
-    await update({
-      enabled,
-      intervalSec: clampedMin * 60,
-      ackMaxChars: ackMaxChars,
-      maxRetries: maxRetries,
-      isolatedSession: isolatedSession,
-      lightContext: lightContext,
-      activeHoursStart: activeHoursStart || undefined,
-      activeHoursEnd: activeHoursEnd || undefined,
-      timezone: timezone || undefined,
-      channel: channel || undefined,
-      chatId: chatId || undefined,
-      model: hbModel || undefined,
-      providerName: hbProvider || undefined,
-    });
-    if (checklist !== originalChecklist) {
-      await setChecklist(checklist);
-      setOriginalChecklist(checklist);
+    try {
+      const clampedMin = Math.max(5, intervalMin);
+      await update({
+        enabled,
+        intervalSec: clampedMin * 60,
+        ackMaxChars: ackMaxChars,
+        maxRetries: maxRetries,
+        isolatedSession: isolatedSession,
+        lightContext: lightContext,
+        activeHoursStart: activeHoursStart || undefined,
+        activeHoursEnd: activeHoursEnd || undefined,
+        timezone: timezone || undefined,
+        channel: channel || undefined,
+        chatId: chatId || undefined,
+        model: hbModel || undefined,
+        providerName: hbProvider || undefined,
+      });
+      if (checklist !== originalChecklist) {
+        await setChecklist(checklist);
+        setOriginalChecklist(checklist);
+      }
+      await refresh();
+      onOpenChange(false);
+    } catch {
+      // toast shown by hook — keep dialog open
     }
-    await refresh();
-    onOpenChange(false);
   };
 
   return (
@@ -182,7 +187,7 @@ export function HeartbeatConfigDialog({
                 min={5}
                 value={intervalMin}
                 onChange={(e) => setIntervalMin(Math.max(5, Number(e.target.value) || 5))}
-                className="w-24 text-center text-base md:text-sm"
+                className="w-[4.5rem] text-center text-base md:text-sm"
               />
               <span className="text-xs text-muted-foreground">min</span>
             </div>
@@ -191,7 +196,7 @@ export function HeartbeatConfigDialog({
           {/* ── Provider / Model override ── */}
           <div className="space-y-2">
             <div className="flex items-center gap-2">
-              <Cpu className="h-3.5 w-3.5 text-violet-500" />
+              <Cpu className="h-3.5 w-3.5 text-orange-500" />
               <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 {t("heartbeat.sectionModel")}
               </h4>
@@ -298,8 +303,8 @@ export function HeartbeatConfigDialog({
                 {t("heartbeat.sectionSchedule")}
               </h4>
             </div>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-              <div className="space-y-1">
+            <div className="flex flex-wrap items-end gap-3">
+              <div className="space-y-1 w-24">
                 <Label htmlFor="hb-start" className="text-xs">{t("heartbeat.activeHoursStart")}</Label>
                 <Input
                   id="hb-start"
@@ -309,7 +314,7 @@ export function HeartbeatConfigDialog({
                   className="text-base md:text-sm"
                 />
               </div>
-              <div className="space-y-1">
+              <div className="space-y-1 w-24">
                 <Label htmlFor="hb-end" className="text-xs">{t("heartbeat.activeHoursEnd")}</Label>
                 <Input
                   id="hb-end"
@@ -319,15 +324,19 @@ export function HeartbeatConfigDialog({
                   className="text-base md:text-sm"
                 />
               </div>
-              <div className="space-y-1">
-                <Label htmlFor="hb-tz" className="text-xs">{t("heartbeat.timezone")}</Label>
-                <Input
-                  id="hb-tz"
-                  placeholder="Asia/Ho_Chi_Minh"
-                  value={timezone}
-                  onChange={(e) => setTimezone(e.target.value)}
-                  className="text-base md:text-sm"
-                />
+              <div className="space-y-1 flex-1 min-w-[160px]">
+                <Label className="text-xs">{t("heartbeat.timezone")}</Label>
+                <Select value={timezone || "__auto__"} onValueChange={(v) => setTimezone(v === "__auto__" ? "" : v)}>
+                  <SelectTrigger className="text-base md:text-sm">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__auto__">{defaultTz}</SelectItem>
+                    {IANA_TIMEZONES.map((tz) => (
+                      <SelectItem key={tz.value} value={tz.value}>{tz.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
             </div>
             <p className="text-xs text-muted-foreground">{t("heartbeat.scheduleHint")}</p>

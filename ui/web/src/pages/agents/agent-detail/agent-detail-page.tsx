@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useNavigate } from "react-router";
 import { useTranslation } from "react-i18next";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAgentDetail } from "../hooks/use-agent-detail";
@@ -8,6 +9,7 @@ import { AgentHeader } from "./agent-header";
 import { AgentOverviewTab } from "./agent-overview-tab";
 import { AgentFilesTab } from "./agent-files-tab";
 import { AgentInstancesTab } from "./agent-instances-tab";
+import { AgentPermissionsTab } from "./agent-permissions-tab";
 import { AgentAdvancedDialog } from "./agent-advanced-dialog";
 import { HeartbeatConfigDialog } from "./heartbeat-config-dialog";
 import { SummoningModal } from "../summoning-modal";
@@ -22,6 +24,7 @@ interface AgentDetailPageProps {
 
 export function AgentDetailPage({ agentId, onBack }: AgentDetailPageProps) {
   const { t } = useTranslation("agents");
+  const navigate = useNavigate();
   const { agent, files, loading, updateAgent, getFile, setFile, regenerateAgent, resummonAgent, refresh } =
     useAgentDetail(agentId);
   const { deleteAgent: deleteAgentById } = useAgents();
@@ -70,13 +73,20 @@ export function AgentDetailPage({ agentId, onBack }: AgentDetailPageProps) {
             <TabsList className="w-full justify-start overflow-x-auto overflow-y-hidden">
               <TabsTrigger value="agent">{t("detail.tabs.agent")}</TabsTrigger>
               <TabsTrigger value="files">{t("detail.tabs.files")}</TabsTrigger>
+              <TabsTrigger value="permissions">{t("detail.tabs.permissions")}</TabsTrigger>
               {agent.agent_type === "predefined" && (
                 <TabsTrigger value="instances">{t("detail.tabs.instances")}</TabsTrigger>
               )}
             </TabsList>
 
             <TabsContent value="agent" className="mt-4">
-              <AgentOverviewTab key={agent.id + "-" + agent.updated_at} agent={agent} onUpdate={updateAgent} heartbeat={hb} />
+              <AgentOverviewTab
+                key={agent.id + "-" + agent.updated_at}
+                agent={agent}
+                onUpdate={updateAgent}
+                heartbeat={hb}
+                onManageCodexPool={() => navigate(`/agents/${agent.id}/codex-pool`)}
+              />
             </TabsContent>
 
             <TabsContent value="files" className="mt-4">
@@ -90,6 +100,10 @@ export function AgentDetailPage({ agentId, onBack }: AgentDetailPageProps) {
               />
             </TabsContent>
 
+            <TabsContent value="permissions" className="mt-4">
+              <AgentPermissionsTab agentId={agentId} />
+            </TabsContent>
+
             {agent.agent_type === "predefined" && (
               <TabsContent value="instances" className="mt-4">
                 <AgentInstancesTab agentId={agentId} />
@@ -99,13 +113,15 @@ export function AgentDetailPage({ agentId, onBack }: AgentDetailPageProps) {
         </div>
       </div>
 
-      <AgentAdvancedDialog
-        key={agent.id}
-        open={advancedOpen}
-        onOpenChange={setAdvancedOpen}
-        agent={agent}
-        onUpdate={updateAgent}
-      />
+      {advancedOpen ? (
+        <AgentAdvancedDialog
+          key={agent.id}
+          open={advancedOpen}
+          onOpenChange={setAdvancedOpen}
+          agent={agent}
+          onUpdate={updateAgent}
+        />
+      ) : null}
 
       <SummoningModal
         open={summoningOpen}

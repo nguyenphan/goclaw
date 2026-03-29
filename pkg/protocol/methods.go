@@ -11,10 +11,11 @@ const (
 	MethodAgentIdentityGet = "agent.identity.get"
 
 	// Chat
-	MethodChatSend    = "chat.send"
-	MethodChatHistory = "chat.history"
-	MethodChatAbort   = "chat.abort"
-	MethodChatInject  = "chat.inject"
+	MethodChatSend          = "chat.send"
+	MethodChatHistory       = "chat.history"
+	MethodChatAbort         = "chat.abort"
+	MethodChatInject        = "chat.inject"
+	MethodChatSessionStatus = "chat.session.status"
 
 	// Agents management
 	MethodAgentsList     = "agents.list"
@@ -95,6 +96,13 @@ const (
 	MethodHeartbeatTargets      = "heartbeat.targets"
 )
 
+// Config permissions
+const (
+	MethodConfigPermissionsList   = "config.permissions.list"
+	MethodConfigPermissionsGrant  = "config.permissions.grant"
+	MethodConfigPermissionsRevoke = "config.permissions.revoke"
+)
+
 // Channel instances management
 const (
 	MethodChannelInstancesList   = "channels.instances.list"
@@ -129,7 +137,8 @@ const (
 	MethodTeamsTaskCreate    = "teams.tasks.create"
 	MethodTeamsTaskDelete     = "teams.tasks.delete"
 	MethodTeamsTaskDeleteBulk = "teams.tasks.delete-bulk"
-	MethodTeamsTaskAssign     = "teams.tasks.assign"
+	MethodTeamsTaskAssign            = "teams.tasks.assign"
+	MethodTeamsTaskActiveBySession   = "teams.tasks.active-by-session"
 	MethodTeamsMembersAdd    = "teams.members.add"
 	MethodTeamsMembersRemove = "teams.members.remove"
 	MethodTeamsUpdate        = "teams.update"
@@ -147,12 +156,6 @@ const (
 // Team events
 const (
 	MethodTeamsEventsList = "teams.events.list"
-)
-
-// Delegation history
-const (
-	MethodDelegationsList = "delegations.list"
-	MethodDelegationsGet  = "delegations.get"
 )
 
 // API key management

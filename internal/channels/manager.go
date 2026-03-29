@@ -2,8 +2,11 @@ package channels
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"sync"
+
+	"github.com/google/uuid"
 
 	"github.com/nextlevelbuilder/goclaw/internal/bus"
 	"github.com/nextlevelbuilder/goclaw/internal/store"
@@ -188,6 +191,37 @@ func (m *Manager) ChannelTypeForName(name string) string {
 		return ch.Type()
 	}
 	return ""
+}
+
+// ChannelTenantID returns the tenant UUID for a channel instance.
+// Zero UUID means legacy/config-based channel (no tenant scope).
+// Returns (tenantID, exists).
+func (m *Manager) ChannelTenantID(channelName string) (uuid.UUID, bool) {
+	m.mu.RLock()
+	ch, ok := m.channels[channelName]
+	m.mu.RUnlock()
+	if !ok {
+		return uuid.Nil, false
+	}
+	if tc, ok := ch.(interface{ TenantID() uuid.UUID }); ok {
+		return tc.TenantID(), true
+	}
+	return uuid.Nil, true // legacy channel without tenant scope
+}
+
+// ListGroupMembers delegates to the channel's GroupMemberProvider if available.
+func (m *Manager) ListGroupMembers(ctx context.Context, channelName, chatID string) ([]GroupMember, error) {
+	m.mu.RLock()
+	ch, ok := m.channels[channelName]
+	m.mu.RUnlock()
+	if !ok {
+		return nil, fmt.Errorf("channel %q not found", channelName)
+	}
+	gmp, ok := ch.(GroupMemberProvider)
+	if !ok {
+		return nil, fmt.Errorf("channel %q does not support listing group members", channelName)
+	}
+	return gmp.ListGroupMembers(ctx, chatID)
 }
 
 // UnregisterChannel removes a channel from the manager.

@@ -1,20 +1,26 @@
 import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
-import { Save, Settings } from "lucide-react";
+import { Save, Settings, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 import { ConfigGroupHeader } from "@/components/shared/config-group-header";
 import type {
-  AgentData, CompactionConfig, ContextPruningConfig,
+  AgentData, ChatGPTOAuthRoutingConfig, CompactionConfig, ContextPruningConfig,
   SandboxConfig, WorkspaceSharingConfig,
 } from "@/types/agent";
 import {
-  ThinkingSection, WorkspaceSharingSection, CompactionSection,
+  ChatGPTOAuthRoutingSection, ThinkingSection, WorkspaceSharingSection, CompactionSection,
   ContextPruningSection, SandboxSection,
 } from "./config-sections";
 import { WorkspaceSection } from "./general-sections";
+import { useProviders } from "@/pages/providers/hooks/use-providers";
+import { getChatGPTOAuthProviderRouting } from "@/types/provider";
+import {
+  buildAgentOtherConfigWithChatGPTOAuthRouting,
+  normalizeChatGPTOAuthRouting,
+} from "./agent-display-utils";
 
 interface AgentAdvancedDialogProps {
   open: boolean;
@@ -25,11 +31,25 @@ interface AgentAdvancedDialogProps {
 
 export function AgentAdvancedDialog({ open, onOpenChange, agent, onUpdate }: AgentAdvancedDialogProps) {
   const { t } = useTranslation("agents");
+  const { providers } = useProviders();
+  const providerByName = new Map(providers.map((provider) => [provider.name, provider]));
+  const currentProvider = providerByName.get(agent.provider);
+  const providerDefaults = getChatGPTOAuthProviderRouting(currentProvider?.settings);
 
   const deriveState = (a: AgentData) => {
     const otherObj = (a.other_config ?? {}) as Record<string, unknown>;
+    const routing = normalizeChatGPTOAuthRouting(a.other_config);
     return {
       thinkingLevel: typeof otherObj.thinking_level === "string" ? otherObj.thinking_level : "off",
+      chatgptRouting: {
+        override_mode: routing.isExplicit
+          ? routing.overrideMode
+          : providerDefaults
+            ? "inherit"
+            : "custom",
+        strategy: routing.strategy,
+        extra_provider_names: routing.extraProviderNames,
+      } as ChatGPTOAuthRoutingConfig,
       wsSharing: (otherObj.workspace_sharing ?? {}) as WorkspaceSharingConfig,
       comp: a.compaction_config ?? {},
       pruneEnabled: a.context_pruning != null,
@@ -42,6 +62,7 @@ export function AgentAdvancedDialog({ open, onOpenChange, agent, onUpdate }: Age
   const init = deriveState(agent);
   const [wsSharing, setWsSharing] = useState<WorkspaceSharingConfig>(init.wsSharing);
   const [thinkingLevel, setThinkingLevel] = useState(init.thinkingLevel);
+  const [chatgptRouting, setChatgptRouting] = useState<ChatGPTOAuthRoutingConfig>(init.chatgptRouting);
   const [comp, setComp] = useState<CompactionConfig>(init.comp);
   const [pruneEnabled, setPruneEnabled] = useState(init.pruneEnabled);
   const [prune, setPrune] = useState<ContextPruningConfig>(init.prune);
@@ -53,6 +74,7 @@ export function AgentAdvancedDialog({ open, onOpenChange, agent, onUpdate }: Age
     if (!open) return;
     const s = deriveState(agent);
     setThinkingLevel(s.thinkingLevel);
+    setChatgptRouting(s.chatgptRouting);
     setWsSharing(s.wsSharing);
     setComp(s.comp);
     setPruneEnabled(s.pruneEnabled);
@@ -63,17 +85,18 @@ export function AgentAdvancedDialog({ open, onOpenChange, agent, onUpdate }: Age
   }, [open]);
 
   const [saving, setSaving] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
 
   const handleSave = async () => {
     setSaving(true);
-    setSaveError(null);
     try {
       // Only send the keys this dialog owns to avoid overwriting keys managed by
       // the overview tab. The backend does a full column replace, so we must read
       // the latest agent data and merge our keys into it.
-      const existing = (agent.other_config as Record<string, unknown> | null) ?? {};
-      const otherBase: Record<string, unknown> = { ...existing };
+      const otherBase = buildAgentOtherConfigWithChatGPTOAuthRouting(
+        agent,
+        chatgptRouting,
+        currentProvider?.settings,
+      );
       delete otherBase.thinking_level;
       delete otherBase.workspace_sharing;
       if (thinkingLevel && thinkingLevel !== "off") {
@@ -92,8 +115,8 @@ export function AgentAdvancedDialog({ open, onOpenChange, agent, onUpdate }: Age
         other_config: otherBase,
       });
       onOpenChange(false);
-    } catch (err) {
-      setSaveError(err instanceof Error ? err.message : t("config.failedToSave"));
+    } catch {
+      // toast shown by hook — keep dialog open
     } finally {
       setSaving(false);
     }
@@ -120,6 +143,18 @@ export function AgentAdvancedDialog({ open, onOpenChange, agent, onUpdate }: Age
           {/* Thinking */}
           <ThinkingSection value={thinkingLevel} onChange={setThinkingLevel} />
 
+          <ChatGPTOAuthRoutingSection
+            currentProvider={agent.provider}
+            providers={providers}
+            value={chatgptRouting}
+            onChange={setChatgptRouting}
+            defaultRouting={providerDefaults}
+            membershipEditable={false}
+            membershipManagedByLabel={
+              currentProvider?.display_name || agent.provider
+            }
+          />
+
           {/* Performance */}
           <ConfigGroupHeader
             title={t("configGroups.performance")}
@@ -143,19 +178,14 @@ export function AgentAdvancedDialog({ open, onOpenChange, agent, onUpdate }: Age
         </div>
 
         {/* Footer */}
-        <div className="flex flex-col gap-2 pt-4 border-t shrink-0">
-          {saveError && (
-            <p className="text-sm text-destructive">{saveError}</p>
-          )}
-          <div className="flex items-center justify-end gap-2">
-            <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
-              {t("create.cancel")}
-            </Button>
-            <Button onClick={handleSave} disabled={saving}>
-              {!saving && <Save className="h-4 w-4" />}
-              {saving ? t("config.saving") : t("config.saveConfig")}
-            </Button>
-          </div>
+        <div className="flex items-center justify-end gap-2 pt-4 border-t shrink-0">
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
+            {t("create.cancel")}
+          </Button>
+          <Button onClick={handleSave} disabled={saving}>
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+            {saving ? t("config.saving") : t("config.saveConfig")}
+          </Button>
         </div>
       </DialogContent>
     </Dialog>

@@ -12,6 +12,8 @@ export interface FieldDef {
   help?: string;
   /** Only show this field when another field has a specific value */
   showWhen?: { key: string; value: string };
+  /** Disable this field when another field has a specific value */
+  disabledWhen?: { key: string; value: string; hint?: string };
 }
 
 // --- Shared option lists ---
@@ -34,6 +36,11 @@ export const groupPolicyOptions = [
   { value: "pairing", label: "Pairing (require approval)" },
   { value: "allowlist", label: "Allowlist only" },
   { value: "disabled", label: "Disabled" },
+];
+
+const mentionModeOptions = [
+  { value: "strict", label: "Default (follow @mention setting)" },
+  { value: "yield", label: "Multi-bot (respond unless another bot is @mentioned)" },
 ];
 
 // --- Credentials schemas ---
@@ -74,7 +81,8 @@ export const configSchema: Record<string, FieldDef[]> = {
     { key: "proxy", label: "HTTP Proxy", type: "text", placeholder: "http://proxy:8080", help: "Route bot traffic through an HTTP proxy" },
     { key: "dm_policy", label: "DM Policy", type: "select", options: dmPolicyOptions, defaultValue: "pairing" },
     { key: "group_policy", label: "Group Policy", type: "select", options: groupPolicyOptions, defaultValue: "pairing" },
-    { key: "require_mention", label: "Require @mention in groups", type: "boolean", defaultValue: true },
+    { key: "mention_mode", label: "Group Response Behavior", type: "select", options: mentionModeOptions, defaultValue: "strict", help: "How the bot decides when to respond in groups with multiple bots." },
+    { key: "require_mention", label: "Require @mention in groups", type: "boolean", defaultValue: true, disabledWhen: { key: "mention_mode", value: "yield", hint: "fieldConfig.require_mention.disabledHint" } },
     { key: "history_limit", label: "Group History Limit", type: "number", defaultValue: 50, help: "Max pending group messages for context (0 = disabled)" },
     { key: "dm_stream", label: "DM Streaming", type: "boolean", defaultValue: true, help: "Stream response progressively in DMs" },
     { key: "group_stream", label: "Group Streaming", type: "boolean", defaultValue: false, help: "Stream response progressively in groups" },
@@ -155,13 +163,43 @@ export const configSchema: Record<string, FieldDef[]> = {
 
 export const groupOverrideSchema: FieldDef[] = [
   { key: "group_policy", label: "Group Policy", type: "tristate", options: groupPolicyOptions },
-  { key: "require_mention", label: "Require @mention", type: "tristate" },
+  { key: "mention_mode", label: "Mention Mode", type: "tristate", options: mentionModeOptions },
+  { key: "require_mention", label: "Require @mention", type: "tristate", disabledWhen: { key: "mention_mode", value: "yield", hint: "fieldConfig.require_mention.disabledHint" } },
   { key: "enabled", label: "Enabled", type: "tristate" },
   { key: "allow_from", label: "Allowed Users", type: "tags", placeholder: "User IDs, one per line", help: "Restrict which users can interact in this group" },
   { key: "skills", label: "Skills Filter", type: "skill-select", help: "Limit available skills for this group" },
   { key: "tools", label: "Tool Allowlist", type: "tool-select", help: "Restrict which tools the agent can use in this group" },
   { key: "system_prompt", label: "System Prompt", type: "textarea", placeholder: "Additional system prompt for this group..." },
 ];
+
+// --- Required API scopes per channel type ---
+// Displayed as a help reference when creating/configuring a channel.
+
+export interface ScopeEntry {
+  scope: string;
+  note?: string; // e.g. "Range: All members"
+}
+
+export const requiredScopes: Partial<Record<string, ScopeEntry[]>> = {
+  feishu: [
+    { scope: "application:application:self_manage" },
+    { scope: "application:bot.menu:write" },
+    { scope: "cardkit:card:read" },
+    { scope: "cardkit:card:write" },
+    { scope: "contact:contact.base:readonly", note: "Range: All members" },
+    { scope: "contact:user.base:readonly", note: "Range: All members" },
+    { scope: "contact:user.employee_id:readonly", note: "Range: All members" },
+    { scope: "event:ip_list" },
+    { scope: "im:chat.members:bot_access" },
+    { scope: "im:chat.members:read", note: "Required for list_group_members tool" },
+    { scope: "im:message" },
+    { scope: "im:message.group_at_msg:readonly" },
+    { scope: "im:message.p2p_msg:readonly" },
+    { scope: "im:message:readonly" },
+    { scope: "im:message:send_as_bot" },
+    { scope: "im:resource" },
+  ],
+};
 
 // --- Post-create wizard configuration ---
 // Channels with multi-step create flows (e.g. auth then config).

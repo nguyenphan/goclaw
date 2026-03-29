@@ -6,7 +6,10 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/google/uuid"
+
 	"github.com/nextlevelbuilder/goclaw/internal/bus"
+	"github.com/nextlevelbuilder/goclaw/internal/store"
 	"github.com/nextlevelbuilder/goclaw/pkg/protocol"
 )
 
@@ -28,9 +31,15 @@ func (m *Manager) HandleAgentEvent(eventType, runID string, payload any) {
 	}
 
 	ctx := context.Background()
+	if ta, ok := ch.(interface{ TenantID() uuid.UUID }); ok {
+		ctx = store.WithTenantID(ctx, ta.TenantID())
+	}
 
-	// Forward to StreamingChannel
-	if sc, ok := ch.(StreamingChannel); ok {
+	// Forward to StreamingChannel (only when streaming is enabled for this run).
+	// Without this gate, channels that implement StreamingChannel but have streaming
+	// disabled (e.g. group_stream=false) would create stream messages AND emit
+	// block.reply outbound messages, causing duplicate delivery.
+	if sc, ok := ch.(StreamingChannel); ok && rc.Streaming {
 		switch eventType {
 		case protocol.AgentEventRunStarted:
 			stream, err := sc.CreateStream(ctx, rc.ChatID, true)
@@ -375,7 +384,6 @@ var toolStatusMap = map[string]string{
 	// Delegation & teams
 	"spawn":        "👥 Delegating task...",
 	"team_tasks":   "📋 Managing team tasks...",
-	"team_message": "💬 Sending team message...",
 	// Sessions
 	"sessions_list":    "📋 Listing sessions...",
 	"session_status":   "📋 Checking session...",

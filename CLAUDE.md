@@ -6,7 +6,9 @@ PostgreSQL multi-tenant AI agent gateway with WebSocket RPC + HTTP API.
 
 **Backend:** Go 1.26, Cobra CLI, gorilla/websocket, pgx/v5 (database/sql, no ORM), golang-migrate, go-rod/rod, telego (Telegram)
 **Web UI:** React 19, Vite 6, TypeScript, Tailwind CSS 4, Radix UI, Zustand, React Router 7. Located in `ui/web/`. **Use `pnpm` (not npm).**
-**Database:** PostgreSQL 18 with pgvector. Raw SQL with `$1, $2` positional params. Nullable columns: `*string`, `*time.Time`, etc.
+**Desktop UI:** React 19, Vite 6, TypeScript, Tailwind CSS 4, Zustand, Framer Motion. Located in `ui/desktop/frontend/`. **Use `pnpm`.**
+**Desktop App:** Wails v2 (`//go:build sqliteonly`). Located in `ui/desktop/`. Embeds gateway + React frontend in single binary.
+**Database:** PostgreSQL 18 with pgvector (standard). SQLite via `modernc.org/sqlite` (desktop/lite). Raw SQL with `$1, $2` (PG) or `?` (SQLite) positional params. Nullable columns: `*string`, `*time.Time`, etc.
 
 ## Project Structure
 
@@ -71,7 +73,31 @@ go build -o goclaw . && ./goclaw onboard && source .env.local && ./goclaw
 go test -v ./tests/integration/     # Integration tests
 
 cd ui/web && pnpm install && pnpm dev   # Web dashboard (dev)
+
+# Desktop (Wails + SQLite)
+cd ui/desktop && wails dev -tags sqliteonly  # Dev mode with hot reload (direct)
+make desktop-dev                             # Same as above via Makefile
+make desktop-build VERSION=0.1.0             # Build .app (macOS) or .exe (Windows)
+make desktop-dmg VERSION=0.1.0               # Create .dmg installer (macOS only)
 ```
+
+## Desktop Edition (Lite)
+
+- **Build tag:** `//go:build sqliteonly` — desktop binary includes only SQLite, no PostgreSQL
+- **Edition system:** `internal/edition/edition.go` — `Lite` preset auto-selected for SQLite backend. Check `edition.Current()` for feature limits
+- **Entry point:** `ui/desktop/main.go` + `ui/desktop/app.go` — Wails bindings, embedded gateway
+- **Secrets:** OS keyring (`go-keyring`) with file fallback at `~/.goclaw/secrets/`
+- **Data dir:** `~/.goclaw/data/` (SQLite DB, configs)
+- **Workspace:** `~/.goclaw/workspace/` (agent files, team workspace)
+- **Port:** 18790 (localhost only), configurable via `GOCLAW_PORT`
+- **WS params:** All WS method params use **camelCase** (`teamId`, `taskId`, `sessionKey`) — match Go struct `json:"..."` tags
+- **Version:** `cmd.Version` set via `-ldflags` at build time. Frontend calls `wails.getVersion()`
+- **Auto-update:** `internal/updater/updater.go` checks GitHub Releases for `lite-v*` tags. Frontend `UpdateBanner` shows notification
+- **Releases:** Tag `lite-v*` triggers `.github/workflows/release-desktop.yaml` → builds macOS (arm64+amd64) + Windows → GitHub Release
+- **Install scripts:** `scripts/install-lite.sh` (macOS), `scripts/install-lite.ps1` (Windows PowerShell)
+- **Lite limits:** 5 agents, 1 team, 5 members, 50 sessions. No channels, heartbeat, file storage UI, skill self-manage, KG, RBAC, multi-tenant
+- **Tool gating:** `TeamActionPolicy` in `internal/tools/team_action_policy.go` — lite blocks comment/review/approve/reject/attach/ask_user. `skill_manage`/`publish_skill` not registered in lite
+- **File serving:** 2-layer path isolation in `internal/http/files.go` — workspace boundary (all editions) + tenant scope (standard only with RBAC)
 
 ## Post-Implementation Checklist
 
@@ -79,7 +105,8 @@ After implementing or modifying Go code, run these checks:
 
 ```bash
 go fix ./...                        # Apply Go version upgrades (run before commit)
-go build ./...                      # Compile check
+go build ./...                      # Compile check (PG build)
+go build -tags sqliteonly ./...     # Compile check (Desktop/SQLite build)
 go vet ./...                        # Static analysis
 go test -race ./tests/integration/  # Integration tests with race detector
 ```
@@ -92,6 +119,8 @@ Go conventions to follow:
 - **Migrations:** When adding a new SQL migration file in `migrations/`, bump `RequiredSchemaVersion` in `internal/upgrade/version.go` to match the new migration number
 - **i18n strings:** When adding user-facing error messages, add key to `internal/i18n/keys.go` and translations to `catalog_en.go`, `catalog_vi.go`, `catalog_zh.go`. For UI strings, add to all locale JSON files in `ui/web/src/i18n/locales/{en,vi,zh}/`
 - **SQL safety:** When implementing or modifying SQL store code (`store/pg/*.go`), always verify: (1) All user inputs use parameterized queries (`$1, $2, ...`), never string concatenation — prevents SQL injection. (2) Queries are optimized — no N+1 queries, no unnecessary full table scans. (3) WHERE clauses, JOINs, and ORDER BY columns use existing indices — check migration files for available indexes
+- **DB query reuse:** Before adding a new DB query for key entities (teams, agents, sessions, users), check if the same data is already fetched earlier in the current flow/pipeline. Prefer passing resolved data through context, event payloads, or function params rather than re-querying. Duplicate queries waste DB resources and add latency
+- **Solution design:** When designing a fix or feature, identify the root cause first — don't just patch symptoms. Think through production scenarios (high concurrency, multi-tenant isolation, failure cascades, long-running sessions) to ensure the solution holds up. Prefer explicit configuration over runtime heuristics. Prefer the simplest solution that addresses the root cause directly
 
 ## Mobile UI/UX Rules
 
@@ -109,3 +138,5 @@ When implementing or modifying web UI components, follow these rules to ensure m
 - **Landscape:** Use `landscape-compact` class on top bars to reduce padding in phone landscape orientation (`max-height: 500px`)
 - **Portal dropdowns in dialogs:** Custom dropdown components using `createPortal(content, document.body)` MUST add `pointer-events-auto` class to the dropdown element. Radix Dialog sets `pointer-events: none` on `document.body` — without this class, dropdowns are unclickable. Radix-native portals (Select, Popover) handle this automatically
 - **Timezone:** User timezone stored in Zustand (`useUiStore`). Charts use `formatBucketTz()` from `lib/format.ts` with native `Intl.DateTimeFormat` — no date-fns-tz dependency
+- **ErrorBoundary key:** `AppLayout` uses `<ErrorBoundary key={stableErrorBoundaryKey(pathname)}>` which strips dynamic segments (`/chat/session-A` → `/chat`). NEVER use `key={location.pathname}` on ErrorBoundary/Suspense wrapping `<Outlet>` — it causes full page remount on param changes. Pages with sub-navigation (chat sessions, detail pages) must share a stable key
+- **Route params as source of truth:** For pages with URL params (e.g. `/chat/:sessionKey`), derive state from `useParams()` — do NOT duplicate into `useState`. Dual state causes race conditions between `setState` and `navigate()` leading to UI flash (state bounces: B→A→B). Use optional params (`/chat/:sessionKey?`) instead of two separate routes
