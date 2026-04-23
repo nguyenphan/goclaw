@@ -18,7 +18,7 @@ import (
 // definitions. The caller is responsible for registering tools and starting
 // the health loop. This function is shared by both Manager and Pool.
 func connectAndDiscover(ctx context.Context, name, transportType, command string, args []string, env map[string]string, url string, headers map[string]string, timeoutSec int) (*serverState, []mcpgo.Tool, error) {
-	client, err := createClient(transportType, command, args, env, url, headers)
+	client, err := createClient(transportType, command, args, env, url, headers, timeoutSec)
 	if err != nil {
 		return nil, nil, fmt.Errorf("create client: %w", err)
 	}
@@ -229,7 +229,9 @@ func (m *Manager) registerPoolBridgeTools(entry *poolEntry, serverName, toolPref
 }
 
 // createClient creates the appropriate MCP client based on transport type.
-func createClient(transportType, command string, args []string, env map[string]string, url string, headers map[string]string) (*mcpclient.Client, error) {
+// timeoutSec configures the SSE response timeout (mcp-go v0.46+ WithResponseTimeout).
+// Without this, mcp-go defaults to 60s which is too short for long-running MCP tools.
+func createClient(transportType, command string, args []string, env map[string]string, url string, headers map[string]string, timeoutSec int) (*mcpclient.Client, error) {
 	switch transportType {
 	case "stdio":
 		envSlice := mapToEnvSlice(env)
@@ -239,6 +241,9 @@ func createClient(transportType, command string, args []string, env map[string]s
 		var opts []transport.ClientOption
 		if len(headers) > 0 {
 			opts = append(opts, mcpclient.WithHeaders(headers))
+		}
+		if timeoutSec > 0 {
+			opts = append(opts, transport.WithResponseTimeout(time.Duration(timeoutSec)*time.Second))
 		}
 		return mcpclient.NewSSEMCPClient(url, opts...)
 
@@ -382,7 +387,7 @@ func reconnectWithBackoff(ctx context.Context, ss *serverState, logPrefix string
 func fullReconnect(ctx context.Context, ss *serverState) bool {
 	slog.Info("mcp.full_reconnect", "server", ss.name, "transport", ss.transport)
 
-	newClient, err := createClient(ss.transport, ss.conn.command, ss.conn.args, ss.conn.env, ss.conn.url, ss.conn.headers)
+	newClient, err := createClient(ss.transport, ss.conn.command, ss.conn.args, ss.conn.env, ss.conn.url, ss.conn.headers, ss.timeoutSec)
 	if err != nil {
 		slog.Warn("mcp.reconnect_create_failed", "server", ss.name, "error", err)
 		return false
