@@ -28,7 +28,16 @@ const (
 	// mcpToolInlineMaxCount is the threshold above which MCP tools switch
 	// to search mode (deferred loading via mcp_tool_search) instead of
 	// being registered inline in the tool registry.
-	mcpToolInlineMaxCount = 40
+	//
+	// LOCAL PATCH: bumped from upstream's 40 → 60 to fit the BD agent's
+	// Intel role (56 MCP tools across manga-scraper + social-monitor +
+	// google-workspace + streak). Upstream value was triggering search
+	// mode, but the search-then-activate pattern has a latent bug
+	// (TryActivateDeferred is wired but never called by the agent loop),
+	// so deferred tools become unreachable in single-shot cron fires.
+	// Bumping to 60 keeps everything inline for our agents while still
+	// flagging if a future grant explosion pushes us over.
+	mcpToolInlineMaxCount = 60
 )
 
 // ServerStatus reports the connection status of an MCP server.
